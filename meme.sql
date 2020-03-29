@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Mar 18, 2020 at 05:43 PM
+-- Generation Time: Mar 29, 2020 at 03:57 PM
 -- Server version: 10.3.22-MariaDB-0+deb10u1-log
 -- PHP Version: 7.3.14-1~deb10u1
 
@@ -169,6 +169,9 @@ CREATE TABLE `meme` (
   `CollectionParent` int(10) UNSIGNED DEFAULT NULL,
   `Url` varchar(255) DEFAULT NULL COMMENT 'Null means the file was taken down',
   `OriginalUrl` varchar(255) DEFAULT NULL,
+  `Color` char(7) DEFAULT NULL,
+  `Width` smallint(5) UNSIGNED DEFAULT NULL,
+  `Height` smallint(5) UNSIGNED DEFAULT NULL,
   `Downloadable` bit(1) NOT NULL DEFAULT b'1',
   `Date` datetime NOT NULL DEFAULT current_timestamp(),
   `Hidden` bit(1) NOT NULL DEFAULT b'0',

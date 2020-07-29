@@ -3,26 +3,57 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Mar 29, 2020 at 03:57 PM
+-- Generation Time: Jul 29, 2020 at 04:53 PM
 -- Server version: 10.3.22-MariaDB-0+deb10u1-log
--- PHP Version: 7.3.14-1~deb10u1
+-- PHP Version: 7.3.19-1~deb10u1
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 SET AUTOCOMMIT = 0;
 START TRANSACTION;
 SET time_zone = "+00:00";
 
-
-/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
-/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
-/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
-/*!40101 SET NAMES utf8mb4 */;
-
 --
 -- Database: `meme`
 --
 CREATE DATABASE IF NOT EXISTS `meme` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 USE `meme`;
+
+DELIMITER $$
+--
+-- Procedures
+--
+DROP PROCEDURE IF EXISTS `AddEdge`$$
+CREATE DEFINER=`meme`@`192.168.1.103` PROCEDURE `AddEdge` (IN `pMemeId` INT(10) UNSIGNED, IN `pUserId` BIGINT(22) UNSIGNED, IN `pValue` TINYINT(1) UNSIGNED)  INSERT INTO edge(memeId,userId,Rating) VALUES(pMemeId,pUserId,pValue)
+ON DUPLICATE KEY UPDATE Rating = pValue$$
+
+DROP PROCEDURE IF EXISTS `AddMeme`$$
+CREATE DEFINER=`meme`@`192.168.1.103` PROCEDURE `AddMeme` (IN `pDiscordOrigin` BIGINT(22) UNSIGNED, IN `pType` VARCHAR(10), IN `pCollectionParent` INT(10) UNSIGNED, IN `pUrl` VARCHAR(255), OUT `MID` INT(10) UNSIGNED)  BEGIN
+    IF(NOT EXISTS(SELECT Id FROM meme WHERE Url = pUrl OR OriginalUrl = pUrl)) THEN
+        INSERT INTO meme(DiscordOrigin,Type,CollectionParent,Url)
+        VALUES(pDiscordOrigin,pType,pCollectionParent,pUrl);
+		SELECT LAST_INSERT_ID() INTO MID;
+    ELSE
+    	SELECT Id INTO MID FROM meme WHERE DiscordOrigin = pDiscordOrigin OR Url = pUrl;
+    END IF;
+END$$
+
+DROP PROCEDURE IF EXISTS `AddMemeVote`$$
+CREATE DEFINER=`meme`@`192.168.1.103` PROCEDURE `AddMemeVote` (IN `pMemeId` INT(10) UNSIGNED, IN `pUserId` BIGINT(22) UNSIGNED, IN `pValue` TINYINT(1))  INSERT INTO memevote(memeId,userId,Value) VALUES(pMemeId,pUserId,pValue)
+ON DUPLICATE KEY UPDATE Value=pValue$$
+
+DROP PROCEDURE IF EXISTS `AddUser`$$
+CREATE DEFINER=`meme`@`192.168.1.103` PROCEDURE `AddUser` (IN `pId` BIGINT(22) UNSIGNED, IN `pUsername` VARCHAR(32), IN `pDiscrim` INT(4) UNSIGNED)  BEGIN
+    IF EXISTS(SELECT Id FROM user WHERE Id = pId) THEN
+    	IF pUsername IS NOT NULL THEN
+    		UPDATE user SET Username = pUsername, Discriminator = pDiscrim WHERE Id = pId;
+    	END IF;
+    ELSE
+		INSERT INTO user(Id,Username,Discriminator)
+		VALUES(pId, pUsername, pDiscrim);
+	END IF;
+END$$
+
+DELIMITER ;
 
 -- --------------------------------------------------------
 
@@ -158,6 +189,34 @@ CREATE TABLE `favourites` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `list`
+--
+
+DROP TABLE IF EXISTS `list`;
+CREATE TABLE `list` (
+  `listId` int(11) UNSIGNED NOT NULL,
+  `userId` bigint(20) UNSIGNED NOT NULL COMMENT 'ID of creator of list',
+  `creationDate` datetime NOT NULL DEFAULT current_timestamp(),
+  `updateDate` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `Name` varchar(50) NOT NULL,
+  `Privacy` tinyint(1) UNSIGNED NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `listmeme`
+--
+
+DROP TABLE IF EXISTS `listmeme`;
+CREATE TABLE `listmeme` (
+  `listId` int(10) UNSIGNED NOT NULL,
+  `memeId` int(10) UNSIGNED NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `meme`
 --
 
@@ -172,10 +231,11 @@ CREATE TABLE `meme` (
   `Color` char(7) DEFAULT NULL,
   `Width` smallint(5) UNSIGNED DEFAULT NULL,
   `Height` smallint(5) UNSIGNED DEFAULT NULL,
-  `Downloadable` bit(1) NOT NULL DEFAULT b'1',
+  `Downloadable` tinyint(1) NOT NULL DEFAULT 1,
+  `Hash` char(32) DEFAULT NULL,
   `Date` datetime NOT NULL DEFAULT current_timestamp(),
-  `Hidden` bit(1) NOT NULL DEFAULT b'0',
-  `Nsfw` bit(1) NOT NULL DEFAULT b'0'
+  `Hidden` tinyint(1) NOT NULL DEFAULT 0,
+  `Nsfw` tinyint(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 --
@@ -355,8 +415,9 @@ CREATE TABLE `user` (
   `Id` bigint(22) UNSIGNED NOT NULL,
   `Username` varchar(32) CHARACTER SET utf8 COLLATE utf8_bin DEFAULT NULL,
   `Discriminator` int(4) UNSIGNED DEFAULT NULL,
-  `Admin` bit(1) NOT NULL DEFAULT b'0',
-  `Banned` bit(1) NOT NULL DEFAULT b'0'
+  `Admin` tinyint(1) NOT NULL DEFAULT 0,
+  `Banned` tinyint(1) NOT NULL DEFAULT 0,
+  `FavouritesPrivacy` tinyint(1) UNSIGNED NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Cache for discord user auth';
 
 -- --------------------------------------------------------
@@ -371,7 +432,7 @@ CREATE TABLE `usermessage` (
   `date` timestamp NOT NULL DEFAULT current_timestamp(),
   `title` tinytext NOT NULL,
   `content` varchar(512) NOT NULL,
-  `acknowledged` bit(1) NOT NULL DEFAULT b'0',
+  `acknowledged` tinyint(1) NOT NULL DEFAULT 0,
   `answer` tinytext DEFAULT NULL COMMENT 'Find a way to encode whatever the response is (if any)'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -433,11 +494,26 @@ ALTER TABLE `favourites`
   ADD KEY `dateAdded` (`dateAdded`);
 
 --
+-- Indexes for table `list`
+--
+ALTER TABLE `list`
+  ADD PRIMARY KEY (`listId`),
+  ADD UNIQUE KEY `ListName` (`userId`,`Name`) USING BTREE;
+
+--
+-- Indexes for table `listmeme`
+--
+ALTER TABLE `listmeme`
+  ADD UNIQUE KEY `ListMeme` (`listId`,`memeId`),
+  ADD KEY `ListsMeme` (`memeId`);
+
+--
 -- Indexes for table `meme`
 --
 ALTER TABLE `meme`
   ADD PRIMARY KEY (`Id`),
   ADD UNIQUE KEY `UniqueURL` (`Url`),
+  ADD UNIQUE KEY `UniqueHash` (`Hash`),
   ADD KEY `MemeType` (`Type`),
   ADD KEY `PubDate` (`Date`),
   ADD KEY `CollectionParent` (`CollectionParent`);
@@ -537,6 +613,12 @@ ALTER TABLE `description`
   MODIFY `Id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `list`
+--
+ALTER TABLE `list`
+  MODIFY `listId` int(11) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `meme`
 --
 ALTER TABLE `meme`
@@ -608,6 +690,19 @@ ALTER TABLE `favourites`
   ADD CONSTRAINT `FavUser` FOREIGN KEY (`userId`) REFERENCES `user` (`Id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
+-- Constraints for table `list`
+--
+ALTER TABLE `list`
+  ADD CONSTRAINT `ListCreator` FOREIGN KEY (`userId`) REFERENCES `user` (`Id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
+-- Constraints for table `listmeme`
+--
+ALTER TABLE `listmeme`
+  ADD CONSTRAINT `List` FOREIGN KEY (`listId`) REFERENCES `list` (`listId`) ON DELETE CASCADE ON UPDATE CASCADE,
+  ADD CONSTRAINT `ListsMeme` FOREIGN KEY (`memeId`) REFERENCES `meme` (`Id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
 -- Constraints for table `meme`
 --
 ALTER TABLE `meme`
@@ -666,8 +761,23 @@ ALTER TABLE `transvote`
 --
 ALTER TABLE `usermessage`
   ADD CONSTRAINT `Alertee` FOREIGN KEY (`userId`) REFERENCES `user` (`Id`) ON DELETE CASCADE ON UPDATE CASCADE;
-COMMIT;
 
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+DELIMITER $$
+--
+-- Events
+--
+DROP EVENT `PurgeDeadMemes`$$
+CREATE DEFINER=`meme`@`localhost` EVENT `PurgeDeadMemes` ON SCHEDULE EVERY 1 DAY STARTS '2020-01-21 23:59:59' ON COMPLETION NOT PRESERVE ENABLE DO BEGIN
+DELETE m
+    FROM meme m
+    LEFT JOIN memevote v ON m.Id = v.memeId
+    WHERE v.memeId IS NULL AND m.CollectionParent IS NULL;
+DELETE m
+    FROM meme m
+    INNER JOIN memetodelete d ON d.memeId = m.Id
+    WHERE m.Id = d.memeId;
+DELETE FROM memetodelete;
+END$$
+
+DELIMITER ;
+COMMIT;

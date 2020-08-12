@@ -5,6 +5,40 @@ SET time_zone = "+00:00";
 CREATE DATABASE IF NOT EXISTS `meme` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 USE `meme`;
 
+DELIMITER $$
+DROP PROCEDURE IF EXISTS `AddEdge`$$
+CREATE DEFINER=`meme`@`192.168.1.103` PROCEDURE `AddEdge` (IN `pMemeId` INT(10) UNSIGNED, IN `pUserId` BIGINT(22) UNSIGNED, IN `pValue` TINYINT(1) UNSIGNED)  INSERT INTO edge(memeId,userId,Rating) VALUES(pMemeId,pUserId,pValue)
+ON DUPLICATE KEY UPDATE Rating = pValue$$
+
+DROP PROCEDURE IF EXISTS `AddMeme`$$
+CREATE DEFINER=`meme`@`192.168.1.103` PROCEDURE `AddMeme` (IN `pDiscordOrigin` BIGINT(22) UNSIGNED, IN `pType` VARCHAR(10), IN `pCollectionParent` INT(10) UNSIGNED, IN `pUrl` VARCHAR(255), OUT `MID` INT(10) UNSIGNED)  BEGIN
+    IF(NOT EXISTS(SELECT Id FROM meme WHERE Url = pUrl OR OriginalUrl = pUrl)) THEN
+        INSERT INTO meme(DiscordOrigin,Type,CollectionParent,Url)
+        VALUES(pDiscordOrigin,pType,pCollectionParent,pUrl);
+		SELECT LAST_INSERT_ID() INTO MID;
+    ELSE
+    	SELECT Id INTO MID FROM meme WHERE DiscordOrigin = pDiscordOrigin OR Url = pUrl;
+    END IF;
+END$$
+
+DROP PROCEDURE IF EXISTS `AddMemeVote`$$
+CREATE DEFINER=`meme`@`192.168.1.103` PROCEDURE `AddMemeVote` (IN `pMemeId` INT(10) UNSIGNED, IN `pUserId` BIGINT(22) UNSIGNED, IN `pValue` TINYINT(1))  INSERT INTO memevote(memeId,userId,Value) VALUES(pMemeId,pUserId,pValue)
+ON DUPLICATE KEY UPDATE Value=pValue$$
+
+DROP PROCEDURE IF EXISTS `AddUser`$$
+CREATE DEFINER=`meme`@`192.168.1.103` PROCEDURE `AddUser` (IN `pId` BIGINT(22) UNSIGNED, IN `pUsername` VARCHAR(32), IN `pDiscrim` INT(4) UNSIGNED, IN `pAvatar` VARCHAR(32))  BEGIN
+    IF EXISTS(SELECT Id FROM user WHERE Id = pId) THEN
+    	IF pUsername IS NOT NULL THEN
+    		UPDATE user SET Username = pUsername, Discriminator = pDiscrim, Avatar = pAvatar WHERE Id = pId;
+    	END IF;
+    ELSE
+		INSERT INTO user(Id,Username,Discriminator)
+		VALUES(pId, pUsername, pDiscrim, pAvatar);
+	END IF;
+END$$
+
+DELIMITER ;
+
 DROP TABLE IF EXISTS `category`;
 CREATE TABLE `category` (
   `Id` int(10) UNSIGNED NOT NULL,
@@ -497,4 +531,20 @@ ALTER TABLE `transvote`
 
 ALTER TABLE `usermessage`
   ADD CONSTRAINT `Alertee` FOREIGN KEY (`userId`) REFERENCES `user` (`Id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+DELIMITER $$
+DROP EVENT `PurgeDeadMemes`$$
+CREATE DEFINER=`meme`@`localhost` EVENT `PurgeDeadMemes` ON SCHEDULE EVERY 1 DAY STARTS '2020-01-21 23:59:59' ON COMPLETION NOT PRESERVE ENABLE DO BEGIN
+DELETE m
+    FROM meme m
+    LEFT JOIN memevote v ON m.Id = v.memeId
+    WHERE v.memeId IS NULL AND m.CollectionParent IS NULL;
+DELETE m
+    FROM meme m
+    INNER JOIN memetodelete d ON d.memeId = m.Id
+    WHERE m.Id = d.memeId;
+DELETE FROM memetodelete;
+END$$
+
+DELIMITER ;
 COMMIT;
